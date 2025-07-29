@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Callable
 
 import numpy as np
 
@@ -6,19 +6,42 @@ import numpy as np
 EPSILON = 1e-6
 
 
-def calculate_mes(valuations: np.ndarray, costs: Optional[np.ndarray] = None, budgets: Optional[np.ndarray] = None) -> np.ndarray:
+def config_numpy():
+    np.seterr(divide='ignore', invalid='ignore')
+
+
+def binary_decsisions_feasible_updater(feasible_mask: np.ndarray, chosen: int):
+    num_projs = feasible_mask.shape[0] // 2
+    feasible_mask[[chosen, (chosen + num_projs) % feasible_mask.shape[0]]] = False
+
+
+def dummy_feasible_updater(feasible_mask: np.ndarray, chosen: int):
+    pass
+
+
+def calculate_mes(
+        valuations: np.ndarray,
+        costs: Optional[np.ndarray] = None,
+        budgets: Optional[np.ndarray] = None,
+        safe: bool = True,
+        feasible_updater: Optional[Callable[[np.ndarray, int], None]] = None
+) -> np.ndarray:
     M = valuations.shape[0]
     N = valuations.shape[1]
     costs = costs if costs is not None else np.ones(M)
     budgets = budgets if budgets is not None else np.ones(N) * M / (2 * N)
-    assert M == costs.shape[0]
-    assert N == budgets.shape[0]
+    if safe:
+        assert M == costs.shape[0]
+        assert N == budgets.shape[0]
+        assert (valuations >= 0).all()
+        assert (costs > 0).all()
+        assert (budgets > 0).all()
 
     selected = np.zeros(M)
     feasible_mask = np.ones(M, dtype=bool)
-    np.seterr(divide='ignore') # we might have 0 utilities and it is ok
     while True:
         T = budgets / valuations[feasible_mask]
+        T[np.isnan(T)] = 0
         sigma = np.argsort(T, axis=1)
         T_prime = np.take_along_axis(T, sigma, axis=1)
         inf_mask = np.isinf(T_prime)
@@ -34,8 +57,10 @@ def calculate_mes(valuations: np.ndarray, costs: Optional[np.ndarray] = None, bu
             break
         indexes = np.argmax(b >= costs[feasible_mask][:, None] - EPSILON, axis=1)
         tmp = np.arange(len(indexes)), indexes
-        rhos = (1 - P[tmp]) / S[tmp]
-        mask = b[tmp] >= 1 - EPSILON
+        rhos = (costs[feasible_mask] - P[tmp]) / S[tmp]
+        mask = b[tmp] >= costs[feasible_mask] - EPSILON
+        if not mask.any():
+            break
         chosen = np.argmin(rhos[mask])
         chosen = np.where(mask)[0][chosen]
         rho = rhos[chosen]
@@ -44,17 +69,22 @@ def calculate_mes(valuations: np.ndarray, costs: Optional[np.ndarray] = None, bu
         budgets[sigma[chosen][indexes[chosen]:]] -= rho * valuations[feasible_mask][chosen, sigma[chosen][indexes[chosen]:]]
         chosen_adj = np.where(feasible_mask)[0][chosen]
         selected[chosen_adj] = 1
-        feasible_mask[[chosen_adj, (chosen_adj + M // 2) % M]] = False
+        feasible_mask[chosen_adj] = False
+        if feasible_updater is not None:
+            feasible_updater(feasible_mask, chosen_adj)
         if not sum(feasible_mask):
             break
     return selected
 
 
 if __name__ == '__main__':
+    config_numpy()
     valuations = np.array([
-        [1, 2, 3],
-        [4, 0, 6],
-        [0, 1, 3],
-        [0, 0, 2]
+        [1, 0, 0],
+        [0, 0, 0],
+        [0, 0, 1],
+        [0, 2, 0],
+        [0, 1, 0],
+        [0, 0, 0]
     ])
-    print(calculate_mes(valuations))
+    print(calculate_mes(valuations, feasible_updater=binary_decsisions_feasible_updater))
