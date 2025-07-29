@@ -43,9 +43,9 @@ def calculate_mes(
         assert (budgets > 0).all()
 
     selected = np.zeros(M)
-    feasible_mask = np.ones(M, dtype=bool)
+    available = M
     while True:
-        T = budgets / valuations[feasible_mask]
+        T = budgets / valuations
         T[np.isnan(T)] = 0
         sigma = np.argsort(T, axis=1)
         T_prime = np.take_along_axis(T, sigma, axis=1)
@@ -54,16 +54,16 @@ def calculate_mes(
         B_prime = np.take_along_axis(budgets[None, :].repeat(T_prime.shape[0], axis=0), sigma, axis=1)
         B_prime[inf_mask] = 0.
         P = np.pad(np.cumsum(B_prime, axis=1), ((0, 0), (1, 0)), 'constant')[:,:-1]
-        U_prime = np.take_along_axis(valuations[feasible_mask], sigma, axis=1)
+        U_prime = np.take_along_axis(valuations, sigma, axis=1)
         S = np.cumsum(U_prime[:, ::-1], axis=1)[:, ::-1]
         a = S * T_prime
         b = a + P
-        if (np.max(b, axis=1) < costs[feasible_mask] - EPSILON).all():
+        if (np.max(b, axis=1) < costs - EPSILON).all():
             break
-        indexes = np.argmax(b >= costs[feasible_mask][:, None] - EPSILON, axis=1)
+        indexes = np.argmax(b >= costs[:, None] - EPSILON, axis=1)
         tmp = np.arange(len(indexes)), indexes
-        rhos = (costs[feasible_mask] - P[tmp]) / S[tmp]
-        mask = b[tmp] >= costs[feasible_mask] - EPSILON
+        rhos = (costs - P[tmp]) / S[tmp]
+        mask = b[tmp] >= costs - EPSILON
         if not mask.any():
             break
         chosen = np.argmin(rhos[mask])
@@ -71,13 +71,11 @@ def calculate_mes(
         rho = rhos[chosen]
 
         budgets[sigma[chosen][:indexes[chosen]]] = 0
-        budgets[sigma[chosen][indexes[chosen]:]] -= rho * valuations[feasible_mask][chosen, sigma[chosen][indexes[chosen]:]]
-        chosen_adj = np.where(feasible_mask)[0][chosen]
-        selected[chosen_adj] = 1
-        feasible_mask[chosen_adj] = False
-        if feasible_updater is not None:
-            feasible_updater(feasible_mask, chosen_adj)
-        if not sum(feasible_mask):
+        budgets[sigma[chosen][indexes[chosen]:]] -= rho * valuations[chosen, sigma[chosen][indexes[chosen]:]]
+        selected[chosen] = 1
+        costs[[chosen, (chosen + M // 2) % M]] = 9999999
+        available -= 2
+        if not available:
             break
     if verbose:
         print(f"computed mes over {M=}, {N=} in {(time.time_ns() - start) / 1_000_000} ms")
