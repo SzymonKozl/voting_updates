@@ -1,6 +1,8 @@
 from typing import Optional, Callable
 
 import numpy as np
+import time
+import tqdm
 
 
 EPSILON = 1e-6
@@ -24,8 +26,11 @@ def calculate_mes(
         costs: Optional[np.ndarray] = None,
         budgets: Optional[np.ndarray] = None,
         safe: bool = True,
-        feasible_updater: Optional[Callable[[np.ndarray, int], None]] = None
+        feasible_updater: Optional[Callable[[np.ndarray, int], None]] = None,
+        verbose: bool = False,
 ) -> np.ndarray:
+    if verbose:
+        start = time.time_ns()
     M = valuations.shape[0]
     N = valuations.shape[1]
     costs = costs if costs is not None else np.ones(M)
@@ -74,8 +79,44 @@ def calculate_mes(
             feasible_updater(feasible_mask, chosen_adj)
         if not sum(feasible_mask):
             break
+    if verbose:
+        print(f"computed mes over {M=}, {N=} in {(time.time_ns() - start) / 1_000_000} ms")
     return selected
 
+
+def mes_chunked(
+        chunk_size: int,
+        valuations: np.ndarray,
+        costs: Optional[np.ndarray] = None,
+        budgets: Optional[np.ndarray] = None,
+        safe: bool = True,
+        feasible_updater: Optional[Callable[[np.ndarray, int], None]] = None,
+        verbose: bool = False,
+) -> np.ndarray:
+    if verbose:
+        start = time.time_ns()
+    M = valuations.shape[0]
+    N = valuations.shape[1]
+    if costs is None:
+        costs = np.ones(M)
+    if budgets is None:
+        budgets = np.ones(N) * M / (2 * N)
+    if M < chunk_size * 2:
+        return calculate_mes(valuations, costs, budgets, safe, feasible_updater)
+    splits = range(chunk_size, M - chunk_size, chunk_size) # last chunk will be bigger
+    if not len(splits):
+        return calculate_mes(valuations, costs, budgets, safe, feasible_updater)
+    res = []
+    prev_sep = 0
+    for sep in splits:
+        valuations_chunk = valuations[prev_sep:sep]
+        costs_chunk = costs[prev_sep:sep]
+        budgets_chunk = budgets / M * (sep - prev_sep)
+        res.append(calculate_mes(valuations_chunk, costs_chunk, budgets_chunk, safe, feasible_updater))
+    res = np.concatenate(res)
+    if verbose:
+        print(f"computed mes over {M=}, {N=} in {(time.time_ns() - start) / 1_000_000} ms")
+    return res
 
 if __name__ == '__main__':
     config_numpy()

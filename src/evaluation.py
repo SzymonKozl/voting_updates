@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from functorch import make_functional, vmap, grad
 
-from src.mes import calculate_mes
+from src.mes import calculate_mes, binary_decsisions_feasible_updater, config_numpy
 
 
 def _get_valuations_vec(valuations_raw: torch.Tensor):
@@ -79,20 +79,17 @@ class MESBatchStrategicTrainer(BatchStrategicTrainer):
             for i, grads_layer in enumerate(grads):
                 grads_layer = grads_layer.detach()
                 shape = grads_layer.size()
-                print(shape)
                 grads_layer = torch.flatten(grads_layer, start_dim=1)
-                print(grads_layer.size())
                 valuations = _get_valuations_vec(grads_layer)
-                chosen = calculate_mes(valuations.numpy())
+                chosen = calculate_mes(valuations.T.numpy(), feasible_updater=binary_decsisions_feasible_updater, safe=False, verbose=True)
                 M = valuations.size()[1] // 2
-                update = torch.zeros(M * 2)
-                update[chosen] = 1.
+                update = chosen
                 update[M:] *= -1.
                 update *= self.update_rate
                 update = update[:M] + update[M:]
-                update = torch.reshape(update, shape[1:])
+                update = torch.reshape(torch.Tensor(update), shape[1:])
                 with torch.no_grad():
-                    self.model_params[i].T += update
+                    self.model_params[i].data += update
 
 
 model_getter = Callable[[], nn.Module]
@@ -141,7 +138,7 @@ def evaluate_training_strategy(
         net.train()
         trainer = trainer_type(net, **trainer_kwargs)
         for _ in tqdm(range(epochs)):
-            for images, labels in ds_train:
+            for images, labels in tqdm(ds_train):
                 images, labels = images.to(device), labels.to(device)
                 trainer.train_batch(images, labels)
         reports.append(get_report(net, ds_test))
@@ -166,6 +163,7 @@ class SmallModel(nn.Module):
 
 
 if __name__ == '__main__':
+    config_numpy()
     def _get_model():
         return SmallModel()
 

@@ -2,7 +2,6 @@ import unittest
 import random
 import numpy as np
 import pytest
-from sympy.physics.units import candela
 
 from ext.mes_mikolaj.model import *
 import sys
@@ -10,7 +9,6 @@ sys.path.append('../ext/mes_mikolaj')
 from ext.mes_mikolaj.rules import equal_shares
 
 from src.mes import calculate_mes
-
 
 @pytest.fixture
 def funds():
@@ -79,7 +77,7 @@ def test_mes_2():
     voters_no = 2
     candidate_no = 2
     budget_total = 1
-    funds = np.array([0.08433372, 0.91566628])
+    funds = np.array([0.08433372 + 0.01, 0.91566628 + 0.01])
     costs = np.array([2, 1])
     utils = np.array([[0., 0.1], [0.10503397, 0.01]])
     voters = set()
@@ -106,6 +104,26 @@ def test_mes_2():
     result_npy = np.where(result_npy)[0]
     result_npy = {str(c_id) for c_id in result_npy}
     assert (result_npy == result_true)
+
+
+def test_lackner_skowron_2023():
+    costs = np.ones(7)
+    funds = np.ones(12) * 4 / 12
+    utils = np.array([
+        [1, 1, 0, 0, 0, 0, 0],
+        [1, 1, 0, 0, 0, 0, 0],
+        [1, 1, 0, 0, 0, 0, 0],
+        [1, 0, 1, 0, 0, 0, 0],
+        [1, 0, 1, 0, 0, 0, 0],
+        [1, 0, 1, 0, 0, 0, 0],
+        [1, 0, 0, 1, 0, 0, 0],
+        [1, 0, 0, 1, 0, 0, 0],
+        [0, 1, 1, 0, 0, 1, 0],
+        [0, 0, 0, 0, 1, 0, 0],
+        [0, 0, 0, 0, 0, 1, 0],
+        [0, 0, 0, 0, 0, 0, 1],
+    ])
+    assert set(np.where(calculate_mes(utils.transpose(), costs, funds))[0]) == {0}
 
 
 if __name__ == '__main__':
